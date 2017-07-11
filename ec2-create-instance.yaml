@@ -1,0 +1,87 @@
+---
+- hosts: localhost
+  connection: local
+  become: False
+  vars:
+    region:  
+    aws_access_key: 
+    aws_secret_key: 
+    key_name: 
+    instance_type: t2.micro
+    ami_id:  
+    vpc_id: 
+    vpc_subnet_id: 
+    security_group_name: sg_satellite
+    client_network_groups: ['sg_dev', 'sg_prod']
+    
+  tasks:
+      # Open up SSH from 10.0.0.0/8 to the Satellite instance
+    - ec2_group:
+        aws_access_key: '{{ aws_access_key }}'
+        aws_secret_key: '{{ aws_secret_key }}'
+        name: '{{ security_group_name }}'
+        region: '{{ region }}'
+        vpc_id: '{{ vpc_id }}'
+        rules:
+          # SSH 
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: 10.0.0.0/8
+        description: "Satellite Security Group"
+
+      # Open upp all required ports from Client networks
+      # i.e the Security Groups where the OCP Nodes resides
+      # These are specified in client_network_groups
+      # The rules will be applied in a loop.
+    - ec2_group:
+        purge_rules: false
+        aws_access_key: '{{ aws_access_key }}'
+        aws_secret_key: '{{ aws_secret_key }}'
+        name: '{{ security_group_name }}'
+        region: '{{ region }}'
+        vpc_id: '{{ vpc_id }}'
+        rules:
+          # HTTP from Dev Client Network
+          - proto: tcp
+            from_port: 80
+            to_port: 80
+            group_id: '{{ item }}'
+          # HTTPS from Client Network
+          - proto: tcp
+            from_port: 443
+            to_port: 443
+            group_id: '{{ item }}'
+          # Katello Agent AMQP from Client Network
+          - proto: tcp
+            from_port: 5647
+            to_port: 5647
+            group_id: '{{ item }}'
+        description: "Satellite Security Group"
+      with_items: '{{ client_network_groups }}' 
+
+    - ec2:
+        region: '{{ region }}'
+        aws_access_key: '{{ aws_access_key }}'
+        aws_secret_key: '{{ aws_secret_key }}'
+        key_name: '{{ key_name }}'
+        instance_type: '{{ instance_type }}'
+        image: '{{ ami_id }}'
+        wait: yes
+        wait_timeout: 500
+        count: 1
+        group: '{{ security_group_name }}'
+        instance_tags:
+          name: Satellite6.2 
+        volumes:
+        - device_name: /dev/sdb
+          volume_size: 4
+        - device_name: /dev/sdc
+          volume_size: 1
+        - device_name: /dev/sdd
+          volume_size: 1
+      register: ec2_instance
+
+    - debug:
+        msg: '{{ ec2_instance }}'
+
